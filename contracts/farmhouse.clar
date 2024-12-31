@@ -24,27 +24,39 @@
 )
 
 ;; Function to add multiple recipes
-(define-public (add-multiple-recipes (user principal) (recipes-list (list 10 (string-utf8 50))))
-  (begin
-    (map (lambda (recipe) (add-recipe user recipe)) recipes-list)
-    (ok "Recipes added successfully")
+(define-public (add-multiple-recipes (recipes-list (list 10 (string-utf8 50))))
+  (fold add-recipe-fold recipes-list (ok true))
+)
+
+;; Helper function for add-multiple-recipes
+(define-private (add-recipe-fold (recipe (string-utf8 50)) (previous-result (response bool uint)))
+  (match previous-result
+    success (add-recipe recipe)
+    error (err error)
   )
 )
 
 ;; Function to add a single recipe
-(define-public (add-recipe (user principal) (recipe-name (string-utf8 50)))
-  (let ((recipe-data (default-to { name: "", shared-with: (list) } (map-get? recipes { user: user }))))
+(define-public (add-recipe (recipe-name (string-utf8 50)))
+  (let 
+    (
+      (current-recipe (map-get? recipes { user: tx-sender }))
+      (current-balance (get balance (default-to { balance: u0 } (map-get? recipe-token { user: tx-sender }))))
+    )
     (if (> (len recipe-name) MAX-RECIPE-LENGTH)
-      (err ERR-INVALID-INPUT)
-      (if (is-eq (get name recipe-data) recipe-name)
-        (err ERR-ALREADY-EXISTS)
+      ERR-INVALID-INPUT
+      (match current-recipe
+        existing-recipe (if (is-eq (get name existing-recipe) recipe-name)
+          ERR-ALREADY-EXISTS
+          (begin
+            (map-set recipes { user: tx-sender } { name: recipe-name, shared-with: (list) })
+            (map-set recipe-token { user: tx-sender } { balance: (+ current-balance u1) })
+            (ok true)
+          ))
         (begin
-          (map-set recipes { user: user } { name: recipe-name, shared-with: (list) })
-          (map-set recipe-token 
-            { user: user } 
-            { balance: (+ (default-to u0 (get balance (map-get? recipe-token { user: user }))) u1) }
-          )
-          (ok "Recipe added successfully")
+          (map-set recipes { user: tx-sender } { name: recipe-name, shared-with: (list) })
+          (map-set recipe-token { user: tx-sender } { balance: (+ current-balance u1) })
+          (ok true)
         )
       )
     )
@@ -52,60 +64,74 @@
 )
 
 ;; Function to share a recipe
-(define-public (share-recipe (user principal) (recipe-name (string-utf8 50)) (recipient principal))
-  (let ((recipe-data (default-to { name: "", shared-with: (list) } (map-get? recipes { user: user }))))
-    (if (is-eq (get name recipe-data) "")
-      (err ERR-NOT-FOUND)
-      (if (is-some (index-of (get shared-with recipe-data) recipient))
-        (err ERR-ALREADY-EXISTS)
-        (begin
-          (map-set recipes 
-            { user: user } 
-            { name: recipe-name, shared-with: (unwrap-panic (as-max-len? (append (get shared-with recipe-data) recipient) u10)) }
+(define-public (share-recipe (recipe-name (string-utf8 50)) (recipient principal))
+  (let ((recipe-data (map-get? recipes { user: tx-sender })))
+    (match recipe-data
+      existing-recipe (if (is-eq (get name existing-recipe) recipe-name)
+        (if (is-some (index-of (get shared-with existing-recipe) recipient))
+          ERR-ALREADY-EXISTS
+          (begin
+            (map-set recipes 
+              { user: tx-sender } 
+              { 
+                name: recipe-name, 
+                shared-with: (unwrap-panic (as-max-len? (append (get shared-with existing-recipe) recipient) u10))
+              }
+            )
+            (ok true)
           )
-          (ok "Recipe shared successfully")
         )
+        ERR-NOT-FOUND
       )
+      ERR-NOT-FOUND
     )
   )
 )
 
 ;; Function to delete a recipe
-(define-public (delete-recipe (user principal) (recipe-name (string-utf8 50)))
-  (let ((recipe-data (default-to { name: "", shared-with: (list) } (map-get? recipes { user: user }))))
-    (if (is-eq (get name recipe-data) recipe-name)
-      (begin
-        (map-delete recipes { user: user })
-        (ok "Recipe deleted successfully")
+(define-public (delete-recipe (recipe-name (string-utf8 50)))
+  (let ((recipe-data (map-get? recipes { user: tx-sender })))
+    (match recipe-data
+      existing-recipe (if (is-eq (get name existing-recipe) recipe-name)
+        (begin
+          (map-delete recipes { user: tx-sender })
+          (ok true)
+        )
+        ERR-NOT-FOUND
       )
-      (err ERR-NOT-FOUND)
+      ERR-NOT-FOUND
     )
   )
 )
 
 ;; Function to update a recipe
-(define-public (update-recipe (user principal) (old-recipe-name (string-utf8 50)) (new-recipe-name (string-utf8 50)))
-  (let ((recipe-data (default-to { name: "", shared-with: (list) } (map-get? recipes { user: user }))))
-    (if (is-eq (get name recipe-data) old-recipe-name)
-      (begin
-        (map-set recipes 
-          { user: user } 
-          { name: new-recipe-name, shared-with: (get shared-with recipe-data) }
+(define-public (update-recipe (old-recipe-name (string-utf8 50)) (new-recipe-name (string-utf8 50)))
+  (if (> (len new-recipe-name) MAX-RECIPE-LENGTH)
+    ERR-INVALID-INPUT
+    (let ((recipe-data (map-get? recipes { user: tx-sender })))
+      (match recipe-data
+        existing-recipe (if (is-eq (get name existing-recipe) old-recipe-name)
+          (begin
+            (map-set recipes 
+              { user: tx-sender } 
+              { name: new-recipe-name, shared-with: (get shared-with existing-recipe) }
+            )
+            (ok true)
+          )
+          ERR-NOT-FOUND
         )
-        (ok "Recipe updated successfully")
+        ERR-NOT-FOUND
       )
-      (err ERR-NOT-FOUND)
     )
   )
 )
 
 ;; Function to get a recipe
-(define-read-only (get-recipe (user principal))
-  (default-to { name: "", shared-with: (list) } (map-get? recipes { user: user }))
+(define-read-only (get-recipe)
+  (map-get? recipes { user: tx-sender })
 )
 
 ;; Function to get token balance
-(define-read-only (get-token-balance (user principal))
-  (default-to { balance: u0 } (map-get? recipe-token { user: user }))
+(define-read-only (get-token-balance)
+  (default-to { balance: u0 } (map-get? recipe-token { user: tx-sender }))
 )
-

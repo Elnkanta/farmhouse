@@ -93,7 +93,3 @@ FarmTrace is a Clarity smart contract designed to manage, share, and update reci
 - Recipe names are validated to ensure they do not exceed the maximum length of 50 characters.
 - Recipes can only be deleted or updated by the user who created them.
 - Tokens are awarded for adding recipes, and the balance is tracked for each user.
-
-## License
-
-MIT License.
